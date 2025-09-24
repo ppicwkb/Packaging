@@ -1,0 +1,1488 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitoring Stok Packaging</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            --warning-gradient: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+            --danger-gradient: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+            --glass-bg: rgba(255, 255, 255, 0.25);
+            --glass-border: rgba(255, 255, 255, 0.18);
+            --shadow-soft: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            --shadow-hover: 0 15px 35px rgba(31, 38, 135, 0.2);
+        }
+        
+        body { 
+            font-family: 'Inter', sans-serif; 
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+            background-attachment: fixed;
+            min-height: 100vh;
+        }
+        
+        .loading-spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.8; }
+        }
+        
+        .status-low { 
+            background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 50%, #fecfef 100%);
+            box-shadow: 0 4px 15px 0 rgba(255, 154, 158, 0.75);
+        }
+        .status-medium { 
+            background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+            box-shadow: 0 4px 15px 0 rgba(168, 237, 234, 0.75);
+        }
+        .status-high { 
+            background: linear-gradient(135deg, #d299c2 0%, #fef9d7 100%);
+            box-shadow: 0 4px 15px 0 rgba(210, 153, 194, 0.75);
+        }
+        
+        .mobile-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: 20px;
+            border: 1px solid var(--glass-border);
+            box-shadow: var(--shadow-soft);
+            margin-bottom: 16px;
+            padding: 20px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .mobile-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            border-radius: 20px 20px 0 0;
+        }
+        
+        .mobile-card:hover {
+            transform: translateY(-5px);
+            box-shadow: var(--shadow-hover);
+        }
+        
+        .mobile-card.low-stock::before { background: var(--danger-gradient); }
+        .mobile-card.medium-stock::before { background: var(--warning-gradient); }
+        .mobile-card.high-stock::before { background: var(--success-gradient); }
+        
+        .mobile-table { display: none; }
+        
+        @media (min-width: 1024px) {
+            .mobile-cards { display: none; }
+            .mobile-table { display: block; }
+        }
+        
+        @media (max-width: 640px) {
+            .mobile-header-actions {
+                flex-direction: column;
+                gap: 8px;
+                width: 100%;
+            }
+            .mobile-header-actions button {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+        
+        .fab-button {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            background: var(--primary-gradient);
+            color: white;
+            border: none;
+            box-shadow: var(--shadow-soft);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            cursor: pointer;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 50;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            animation: float 3s ease-in-out infinite;
+        }
+        
+        .fab-button:hover {
+            transform: scale(1.15) translateY(-2px);
+            box-shadow: var(--shadow-hover);
+            animation-play-state: paused;
+        }
+        
+        .fab-button:active {
+            transform: scale(0.95);
+        }
+        
+        .fab-menu {
+            position: fixed;
+            bottom: 110px;
+            right: 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            z-index: 40;
+            opacity: 0;
+            transform: translateY(30px) scale(0.8);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            pointer-events: none;
+        }
+        
+        .fab-menu.active {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            pointer-events: all;
+        }
+        
+        .fab-menu-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            padding: 14px 20px;
+            border-radius: 50px;
+            border: 1px solid var(--glass-border);
+            box-shadow: var(--shadow-soft);
+            color: #1f2937;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 14px;
+            white-space: nowrap;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .fab-menu-item::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+            transition: left 0.5s;
+        }
+        
+        .fab-menu-item:hover {
+            transform: translateX(-8px) scale(1.05);
+            box-shadow: var(--shadow-hover);
+        }
+        
+        .fab-menu-item:hover::before {
+            left: 100%;
+        }
+        
+        @media print {
+            body { background: white !important; }
+            .no-print { display: none !important; }
+            .print-only { display: block !important; }
+            table { font-size: 12px; }
+            .bg-gradient-to-br { background: white !important; }
+            .fab-button, .fab-menu { display: none !important; }
+        }
+        
+        .print-only { display: none; }
+        
+        .glass-effect {
+            background: var(--glass-bg);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            border: 1px solid var(--glass-border);
+            box-shadow: var(--shadow-soft);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .glass-effect:hover {
+            background: rgba(255, 255, 255, 0.35);
+            box-shadow: var(--shadow-hover);
+        }
+        
+        .gradient-text {
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            font-weight: 800;
+            text-shadow: 0 0 30px rgba(102, 126, 234, 0.5);
+        }
+        
+        .card-hover {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .card-hover:hover {
+            transform: translateY(-8px) scale(1.02);
+            box-shadow: var(--shadow-hover);
+        }
+        
+        .btn-gradient {
+            background: var(--primary-gradient);
+            border: none;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .btn-gradient::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            transition: left 0.5s;
+        }
+        
+        .btn-gradient:hover::before {
+            left: 100%;
+        }
+        
+        .btn-gradient:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-hover);
+        }
+        
+
+    </style>
+</head>
+<body class="min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <div class="glass-effect rounded-3xl p-6 sm:p-8 mb-8 sm:mb-10 relative overflow-hidden">
+            <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-white to-transparent opacity-50"></div>
+            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-6 lg:space-y-0">
+                <div class="text-center lg:text-left">
+                    <h1 class="text-3xl sm:text-4xl lg:text-5xl font-bold gradient-text mb-3 animate-pulse">
+                        📦 Monitoring Stok Packaging
+                    </h1>
+                    <p class="text-white/80 text-base sm:text-lg font-medium">Sistem monitoring packaging real-time</p>
+                    <div id="lastUpdate" class="text-sm sm:text-base text-white/60 mt-3 lg:hidden font-medium"></div>
+                </div>
+                <div class="hidden lg:flex items-center space-x-4">
+                    <button id="exportBtn" class="btn-gradient text-white px-8 py-4 rounded-2xl font-semibold flex items-center space-x-3 shadow-lg">
+                        <span class="text-xl">📊</span>
+                        <span>Export Excel</span>
+                    </button>
+                    <button id="exportPdfBtn" class="btn-gradient text-white px-8 py-4 rounded-2xl font-semibold flex items-center space-x-3 shadow-lg">
+                        <span class="text-xl">📄</span>
+                        <span>Export PDF</span>
+                    </button>
+                    <button id="printBtn" class="btn-gradient text-white px-8 py-4 rounded-2xl font-semibold flex items-center space-x-3 shadow-lg">
+                        <span class="text-xl">🖨️</span>
+                        <span>Print</span>
+                    </button>
+                    <button id="refreshBtn" class="btn-gradient text-white px-8 py-4 rounded-2xl font-semibold flex items-center space-x-3 shadow-lg">
+                        <span id="refreshIcon" class="text-xl">🔄</span>
+                        <span>Refresh Data</span>
+                    </button>
+                    <div id="lastUpdate" class="text-sm text-white/70 hidden lg:block font-medium bg-white/10 px-4 py-2 rounded-xl backdrop-blur-sm"></div>
+                </div>
+            </div>
+        </div>
+
+
+
+        <!-- Stats Cards -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8 sm:mb-10">
+            <div class="glass-effect rounded-2xl p-5 sm:p-7 card-hover relative overflow-hidden">
+                <div class="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-blue-400/20 to-purple-400/20 rounded-full -mr-10 -mt-10"></div>
+                <div class="flex items-center justify-between relative z-10">
+                    <div>
+                        <p class="text-white/70 text-xs sm:text-sm font-semibold uppercase tracking-wider">Total Items</p>
+                        <p id="totalItems" class="text-xl sm:text-3xl font-bold text-white mt-2">-</p>
+                    </div>
+                    <div class="bg-gradient-to-br from-blue-500 to-purple-600 p-3 sm:p-4 rounded-2xl shadow-lg">
+                        <span class="text-xl sm:text-2xl">📋</span>
+                    </div>
+                </div>
+            </div>
+            <div class="glass-effect rounded-2xl p-5 sm:p-7 card-hover relative overflow-hidden">
+                <div class="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-red-400/20 to-pink-400/20 rounded-full -mr-10 -mt-10"></div>
+                <div class="flex items-center justify-between relative z-10">
+                    <div>
+                        <p class="text-white/70 text-xs sm:text-sm font-semibold uppercase tracking-wider">Stok Rendah</p>
+                        <p id="lowStock" class="text-xl sm:text-3xl font-bold text-red-300 mt-2">-</p>
+                    </div>
+                    <div class="bg-gradient-to-br from-red-500 to-pink-600 p-3 sm:p-4 rounded-2xl shadow-lg">
+                        <span class="text-xl sm:text-2xl">⚠️</span>
+                    </div>
+                </div>
+            </div>
+            <div class="glass-effect rounded-2xl p-5 sm:p-7 card-hover relative overflow-hidden">
+                <div class="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-green-400/20 to-teal-400/20 rounded-full -mr-10 -mt-10"></div>
+                <div class="flex items-center justify-between relative z-10">
+                    <div>
+                        <p class="text-white/70 text-xs sm:text-sm font-semibold uppercase tracking-wider">Total Stok</p>
+                        <p id="totalStock" class="text-xl sm:text-3xl font-bold text-green-300 mt-2">-</p>
+                    </div>
+                    <div class="bg-gradient-to-br from-green-500 to-teal-600 p-3 sm:p-4 rounded-2xl shadow-lg">
+                        <span class="text-xl sm:text-2xl"></span>
+                    </div>
+                </div>
+            </div>
+            <div class="glass-effect rounded-2xl p-5 sm:p-7 card-hover relative overflow-hidden">
+                <div class="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-purple-400/20 to-indigo-400/20 rounded-full -mr-10 -mt-10"></div>
+                <div class="flex items-center justify-between relative z-10">
+                    <div>
+                        <p class="text-white/70 text-xs sm:text-sm font-semibold uppercase tracking-wider">Brands</p>
+                        <p id="totalBrands" class="text-xl sm:text-3xl font-bold text-purple-300 mt-2">-</p>
+                    </div>
+                    <div class="bg-gradient-to-br from-purple-500 to-indigo-600 p-3 sm:p-4 rounded-2xl shadow-lg">
+                        <span class="text-xl sm:text-2xl">🏷️</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="glass-effect rounded-2xl mb-8 sm:mb-10 overflow-hidden">
+            <div class="p-6 sm:p-8 border-b border-white/20 cursor-pointer card-hover" id="filterToggle">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-xl font-bold text-white mb-2 flex items-center">
+                            🔍   Smart Search
+                            <span id="filterIcon" class="ml-3 text-white/70 transition-transform duration-300 text-2xl"></span>
+                        </h3>
+                        <p class="text-white/70 font-medium"> </p>
+                    </div>
+                </div>
+            </div>
+            <div id="filterContent" class="p-6 sm:p-8 hidden">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div>
+                    <label class="block text-sm font-semibold text-white/90 mb-3 uppercase tracking-wider">Filter Brand</label>
+                    <select id="brandFilter" class="w-full px-5 py-4 bg-white/10 border border-white/20 rounded-xl focus:ring-2 focus:ring-white/50 focus:border-white/50 backdrop-blur-sm text-white placeholder-white/60 font-medium">
+                        <option value="" class="text-gray-800">Semua Brand</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-white/90 mb-3 uppercase tracking-wider">🔍 Smart Search</label>
+                    <input type="text" id="searchInput" placeholder="Cari brand, produk, ukuran, gudang..." class="w-full px-5 py-4 bg-white/10 border border-white/20 rounded-xl focus:ring-2 focus:ring-white/50 focus:border-white/50 backdrop-blur-sm text-white placeholder-white/60 font-medium">
+                    <p class="text-xs text-white/60 mt-2 font-medium">  </p>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mt-8 pt-6 border-t border-white/20">
+                <div>
+                    <label class="block text-sm font-semibold text-white/90 mb-3 uppercase tracking-wider">Urutkan Berdasarkan</label>
+                    <select id="sortBy" class="w-full px-5 py-4 bg-white/10 border border-white/20 rounded-xl focus:ring-2 focus:ring-white/50 focus:border-white/50 backdrop-blur-sm text-white font-medium">
+                        <option value="brand" class="text-gray-800">Brand</option>
+                        <option value="produk" class="text-gray-800">Produk</option>
+                        <option value="total" class="text-gray-800">Total Stok</option>
+                        <option value="gudang" class="text-gray-800">Gudang</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-white/90 mb-3 uppercase tracking-wider">Urutan</label>
+                    <select id="sortOrder" class="w-full px-5 py-4 bg-white/10 border border-white/20 rounded-xl focus:ring-2 focus:ring-white/50 focus:border-white/50 backdrop-blur-sm text-white font-medium">
+                        <option value="asc" class="text-gray-800">A-Z / Rendah-Tinggi</option>
+                        <option value="desc" class="text-gray-800">Z-A / Tinggi-Rendah</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-white/90 mb-3 uppercase tracking-wider">Items per Halaman</label>
+                    <select id="itemsPerPage" class="w-full px-5 py-4 bg-white/10 border border-white/20 rounded-xl focus:ring-2 focus:ring-white/50 focus:border-white/50 backdrop-blur-sm text-white font-medium">
+                        <option value="25" class="text-gray-800">25</option>
+                        <option value="50" class="text-gray-800">50</option>
+                        <option value="100" class="text-gray-800">100</option>
+                        <option value="all" class="text-gray-800">Semua</option>
+                    </select>
+                </div>
+            </div>
+            </div>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loadingState" class="glass-effect rounded-2xl p-16 text-center">
+            <div class="loading-spinner mx-auto mb-6"></div>
+            <p class="text-white/80 text-lg font-medium">Memuat data dari Google Sheets...</p>
+            <div class="mt-4 flex justify-center space-x-2">
+                <div class="w-2 h-2 bg-white/60 rounded-full animate-bounce"></div>
+                <div class="w-2 h-2 bg-white/60 rounded-full animate-bounce" style="animation-delay: 0.1s"></div>
+                <div class="w-2 h-2 bg-white/60 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+            </div>
+        </div>
+
+        <!-- Error State -->
+        <div id="errorState" class="glass-effect rounded-2xl p-8 text-center hidden">
+            <div class="text-red-300 text-6xl mb-6">❌</div>
+            <h3 class="text-2xl font-bold text-white mb-3">Gagal Memuat Data</h3>
+            <p class="text-white/70 mb-6 text-lg">Terjadi kesalahan saat mengambil data dari Google Sheets.</p>
+            <button onclick="loadData()" class="btn-gradient text-white px-8 py-4 rounded-2xl font-semibold">
+                Coba Lagi
+            </button>
+        </div>
+
+        <!-- Mobile Cards View -->
+        <div id="mobileCards" class="mobile-cards space-y-4 mb-6">
+        </div>
+
+        <!-- Desktop Table View -->
+        <div id="dataTable" class="mobile-table glass-effect rounded-2xl overflow-hidden hidden">
+            <div class="p-6 sm:p-8 border-b border-white/20">
+                <h2 class="text-2xl font-bold text-white">📊 Data Packaging</h2>
+                <p class="text-white/70 mt-2 font-medium">Daftar lengkap stok packaging produksi</p>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full">
+                    <thead class="bg-gradient-to-r from-gray-50 to-gray-100">
+                        <tr>
+                            <th class="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Brand</th>
+                            <th class="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Produk</th>
+                            <th class="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ukuran</th>
+                            <th class="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Satuan</th>
+                            <th class="px-6 py-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Awal</th>
+                            <th class="px-6 py-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Beli</th>
+                            <th class="px-6 py-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Proses</th>
+                            <th class="px-6 py-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Masuk</th>
+                            <th class="px-6 py-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Keluar</th>
+                            <th class="px-6 py-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                            <th class="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stok Gudang</th>
+                            <th class="px-6 py-4 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            <th class="px-6 py-4 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody" class="bg-white divide-y divide-gray-200">
+                    </tbody>
+                </table>
+            </div>
+            <!-- Pagination -->
+            <div id="paginationSection" class="px-4 sm:px-6 py-4 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between space-y-3 sm:space-y-0">
+                <div class="text-sm text-gray-700 text-center sm:text-left">
+                    Menampilkan <span id="showingStart">1</span> - <span id="showingEnd">25</span> dari <span id="totalItems2">0</span> items
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button id="prevPage" class="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                        ← Sebelumnya
+                    </button>
+                    <div id="pageNumbers" class="flex items-center space-x-1"></div>
+                    <button id="nextPage" class="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                        Selanjutnya →
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mobile Pagination -->
+        <div id="mobilePaginationSection" class="lg:hidden bg-white rounded-xl shadow-lg p-4 border border-gray-100 mt-4">
+            <div class="text-sm text-gray-700 text-center mb-3">
+                Menampilkan <span id="mobileShowingStart">1</span> - <span id="mobileShowingEnd">25</span> dari <span id="mobileTotalItems">0</span> items
+            </div>
+            <div class="flex items-center justify-center space-x-2">
+                <button id="mobilePrevPage" class="px-4 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                    ← Sebelumnya
+                </button>
+                <div id="mobilePageNumbers" class="flex items-center space-x-1"></div>
+                <button id="mobileNextPage" class="px-4 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                    Selanjutnya →
+                </button>
+            </div>
+        </div>
+
+        <!-- Detail Modal -->
+        <div id="detailModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                <div class="p-6 border-b border-gray-200">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-2xl font-bold text-gray-800 flex items-center">
+                            <span class="mr-3">📦</span>
+                            Detail Produk
+                        </h2>
+                        <button id="closeModal" class="text-gray-400 hover:text-gray-600 text-2xl font-bold">
+                            ✕
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="modalContent" class="p-6">
+                    <!-- Content will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Floating Action Button (Mobile) -->
+        <button id="fabButton" class="fab-button lg:hidden">
+            ⚡
+        </button>
+
+        <!-- FAB Menu -->
+        <div id="fabMenu" class="fab-menu">
+            <div class="fab-menu-item" id="fabRefresh">
+                <span>🔄</span>
+                <span>Refresh</span>
+            </div>
+            <div class="fab-menu-item" id="fabExport">
+                <span>📊</span>
+                <span>Export Excel</span>
+            </div>
+            <div class="fab-menu-item" id="fabExportPdf">
+                <span>📄</span>
+                <span>Export PDF</span>
+            </div>
+            <div class="fab-menu-item" id="fabPrint">
+                <span>🖨️</span>
+                <span>Print</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_KEY = 'AIzaSyBhiKDVDH4fle5_EqAIaA05YjpxVMEBYZM';
+        const SHEET_ID = '1aKA0Gq-EmXmVFhdEpNJrlWk8HzWr7e5T3eqh4DSfEzs';
+        const SHEET_NAME = 'Stock Packaging';
+        
+        let allData = [];
+        let filteredData = [];
+        let currentPage = 1;
+        let itemsPerPage = 25;
+
+        
+        // PDF Export Function
+        function exportToPDF() {
+            try {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF('l', 'mm', 'a4'); // landscape orientation
+                
+                // Add title
+                doc.setFontSize(20);
+                doc.setFont(undefined, 'bold');
+                doc.text('Monitoring Stok Packaging', 20, 20);
+                
+                // Add subtitle and date
+                doc.setFontSize(12);
+                doc.setFont(undefined, 'normal');
+                const now = new Date();
+                const dateStr = now.toLocaleDateString('id-ID', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+                doc.text(`Laporan tanggal: ${dateStr}`, 20, 30);
+                doc.text(`Total items: ${filteredData.length}`, 20, 37);
+                
+                // Prepare table data
+                const headers = [
+                    'Brand', 'Produk', 'Ukuran', 'Satuan', 'Awal', 
+                    'Beli', 'Proses', 'Masuk', 'Keluar', 'Total', 'Gudang', 'Status'
+                ];
+                
+                const tableData = filteredData.map(item => {
+                    const status = getStockStatus(item.total).text;
+                    return [
+                        item.brand,
+                        item.produk,
+                        item.ukuran,
+                        item.satuan,
+                        item.awal.toLocaleString(),
+                        item.beli.toLocaleString(),
+                        item.proses.toLocaleString(),
+                        item.masuk.toLocaleString(),
+                        item.keluar.toLocaleString(),
+                        item.total.toLocaleString(),
+                        item.gudang,
+                        status
+                    ];
+                });
+                
+                // Add table
+                doc.autoTable({
+                    head: [headers],
+                    body: tableData,
+                    startY: 45,
+                    styles: {
+                        fontSize: 8,
+                        cellPadding: 2,
+                    },
+                    headStyles: {
+                        fillColor: [102, 126, 234],
+                        textColor: 255,
+                        fontStyle: 'bold'
+                    },
+                    columnStyles: {
+                        4: { halign: 'right' }, // Awal
+                        5: { halign: 'right' }, // Beli
+                        6: { halign: 'right' }, // Proses
+                        7: { halign: 'right' }, // Masuk
+                        8: { halign: 'right' }, // Keluar
+                        9: { halign: 'right' }, // Total
+                    },
+                    didParseCell: function(data) {
+                        // Color code status column
+                        if (data.column.index === 11) { // Status column
+                            const status = data.cell.text[0];
+                            if (status === 'Rendah') {
+                                data.cell.styles.fillColor = [254, 226, 226]; // red-100
+                                data.cell.styles.textColor = [185, 28, 28]; // red-700
+                            } else if (status === 'Sedang') {
+                                data.cell.styles.fillColor = [219, 234, 254]; // blue-100
+                                data.cell.styles.textColor = [29, 78, 216]; // blue-700
+                            } else if (status === 'Tinggi') {
+                                data.cell.styles.fillColor = [220, 252, 231]; // green-100
+                                data.cell.styles.textColor = [21, 128, 61]; // green-700
+                            }
+                        }
+                    }
+                });
+                
+                // Add summary at the bottom
+                const finalY = doc.lastAutoTable.finalY + 10;
+                doc.setFontSize(10);
+                doc.setFont(undefined, 'bold');
+                doc.text('Ringkasan:', 20, finalY);
+                
+                const totalStock = filteredData.reduce((sum, item) => sum + item.total, 0);
+                const lowStockCount = filteredData.filter(item => item.total < 100).length;
+                const brandCount = new Set(filteredData.map(item => item.brand)).size;
+                
+                doc.setFont(undefined, 'normal');
+                doc.text(`• Total Stok: ${totalStock.toLocaleString()}`, 20, finalY + 7);
+                doc.text(`• Items dengan Stok Rendah: ${lowStockCount}`, 20, finalY + 14);
+                doc.text(`• Jumlah Brand: ${brandCount}`, 20, finalY + 21);
+                
+                // Save the PDF
+                const filename = `monitoring_packaging_${now.toISOString().split('T')[0]}.pdf`;
+                doc.save(filename);
+                
+            } catch (error) {
+                console.error('Error exporting PDF:', error);
+            }
+        }
+
+        // Load data from Google Sheets
+        async function loadData() {
+            try {
+                showLoading();
+                
+                // Get all data from the sheet including headers
+                const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${SHEET_NAME}?key=${API_KEY}`;
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (!data.values || data.values.length < 2) {
+                    throw new Error('No data found in spreadsheet');
+                }
+                
+                // Log the actual sheet structure for debugging
+                console.log('Sheet Headers:', data.values[0]);
+                console.log('First Data Row:', data.values[1]);
+                console.log('Total Rows:', data.values.length);
+                
+                // Process data (skip header row) - map exactly as they appear in sheet
+                allData = data.values.slice(1).map((row, index) => {
+                    // Ensure we handle empty cells and convert numbers properly
+                    const processedRow = {
+                        id: index,
+                        brand: (row[0] || '').toString().trim(),
+                        produk: (row[1] || '').toString().trim(),
+                        ukuran: (row[2] || '').toString().trim(),
+                        satuan: (row[3] || '').toString().trim(),
+                        awal: parseFloat(row[4]) || 0,
+                        beli: parseFloat(row[5]) || 0,
+                        proses: parseFloat(row[6]) || 0,
+                        masuk: parseFloat(row[7]) || 0,
+                        keluar: parseFloat(row[8]) || 0,
+                        total: parseFloat(row[9]) || 0,
+                        gudang: (row[10] || '').toString().trim()
+                    };
+                    
+                    // Log first few rows for verification
+                    if (index < 3) {
+                        console.log(`Row ${index + 1}:`, processedRow);
+                    }
+                    
+                    return processedRow;
+                }).filter(item => 
+                    // Filter out completely empty rows
+                    item.brand || item.produk || item.total > 0
+                );
+                
+                filteredData = [...allData];
+                updateStats();
+                updateFilters();
+                applySorting();
+                renderTable();
+                hideLoading();
+                updateLastUpdate();
+                
+            } catch (error) {
+                console.error('Error loading data:', error);
+                showError();
+            }
+        }
+
+        function showLoading() {
+            document.getElementById('loadingState').classList.remove('hidden');
+            document.getElementById('errorState').classList.add('hidden');
+            document.getElementById('dataTable').classList.add('hidden');
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingState').classList.add('hidden');
+            document.getElementById('errorState').classList.add('hidden');
+            document.getElementById('dataTable').classList.remove('hidden');
+        }
+
+        function showError() {
+            document.getElementById('loadingState').classList.add('hidden');
+            document.getElementById('errorState').classList.remove('hidden');
+            document.getElementById('dataTable').classList.add('hidden');
+        }
+
+        function updateStats() {
+            const totalItems = allData.length;
+            const lowStock = allData.filter(item => item.total < 100).length;
+            const totalStock = allData.reduce((sum, item) => sum + item.total, 0);
+            const totalBrands = new Set(allData.map(item => item.brand)).size;
+
+            document.getElementById('totalItems').textContent = totalItems.toLocaleString();
+            document.getElementById('lowStock').textContent = lowStock.toLocaleString();
+            document.getElementById('totalStock').textContent = totalStock.toLocaleString();
+            document.getElementById('totalBrands').textContent = totalBrands.toLocaleString();
+        }
+
+        function updateFilters() {
+            const brands = [...new Set(allData.map(item => item.brand))].sort();
+            const brandFilter = document.getElementById('brandFilter');
+
+            // Clear existing options (except first)
+            brandFilter.innerHTML = '<option value="">Semua Brand</option>';
+
+            brands.forEach(brand => {
+                if (brand) {
+                    const option = document.createElement('option');
+                    option.value = brand;
+                    option.textContent = brand;
+                    brandFilter.appendChild(option);
+                }
+            });
+        }
+
+        function getStockStatus(total) {
+            if (total < 100) return { class: 'status-low', text: 'Rendah', color: 'text-red-700' };
+            if (total <= 500) return { class: 'status-medium', text: 'Sedang', color: 'text-blue-700' };
+            return { class: 'status-high', text: 'Tinggi', color: 'text-green-700' };
+        }
+
+
+
+        function applySorting() {
+            const sortBy = document.getElementById('sortBy').value;
+            const sortOrder = document.getElementById('sortOrder').value;
+            
+            filteredData.sort((a, b) => {
+                let aVal = a[sortBy];
+                let bVal = b[sortBy];
+                
+                if (typeof aVal === 'string') {
+                    aVal = aVal.toLowerCase();
+                    bVal = bVal.toLowerCase();
+                }
+                
+                if (sortOrder === 'asc') {
+                    return aVal > bVal ? 1 : -1;
+                } else {
+                    return aVal < bVal ? 1 : -1;
+                }
+            });
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('tableBody');
+            const mobileCards = document.getElementById('mobileCards');
+            tbody.innerHTML = '';
+            mobileCards.innerHTML = '';
+            
+            // Pagination logic
+            const totalItems = filteredData.length;
+            const totalPages = itemsPerPage === 'all' ? 1 : Math.ceil(totalItems / itemsPerPage);
+            
+            let startIndex = 0;
+            let endIndex = totalItems;
+            
+            if (itemsPerPage !== 'all') {
+                startIndex = (currentPage - 1) * itemsPerPage;
+                endIndex = Math.min(startIndex + itemsPerPage, totalItems);
+            }
+            
+            const pageData = filteredData.slice(startIndex, endIndex);
+
+            // Render desktop table
+            pageData.forEach(item => {
+                const status = getStockStatus(item.total);
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-gray-50 transition-colors duration-150';
+                
+                row.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="font-medium text-gray-900">${item.brand}</div>
+                    </td>
+                    <td class="px-6 py-4">
+                        <div class="text-gray-900 font-medium">${item.produk}</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-gray-700">${item.ukuran}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-gray-700">${item.satuan}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-right text-gray-700">${item.awal.toLocaleString()}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-right text-gray-700">${item.beli.toLocaleString()}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-right text-gray-700">${item.proses.toLocaleString()}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-right text-green-600 font-medium">${item.masuk.toLocaleString()}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-right text-red-600 font-medium">${item.keluar.toLocaleString()}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-right">
+                        <span class="text-lg font-bold text-gray-900">${item.total.toLocaleString()}</span>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <span class="inline-flex px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                            ${item.gudang}
+                        </span>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-center">
+                        <span class="inline-flex px-3 py-1 rounded-full text-xs font-medium ${status.class} ${status.color}">
+                            ${status.text}
+                        </span>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-center">
+                        <button onclick="showDetail(${item.id})" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center space-x-1 mx-auto">
+                            <span>👁️</span>
+                            <span>Detail</span>
+                        </button>
+                    </td>
+                `;
+                
+                tbody.appendChild(row);
+            });
+
+            // Render mobile cards
+            pageData.forEach(item => {
+                const status = getStockStatus(item.total);
+                const card = document.createElement('div');
+                card.className = `mobile-card ${status.text.toLowerCase()}-stock`;
+                
+                card.innerHTML = `
+                    <div class="flex items-start justify-between mb-3">
+                        <div class="flex-1">
+                            <h3 class="font-semibold text-gray-900 text-lg">${item.brand}</h3>
+                            <p class="text-gray-600 font-medium">${item.produk}</p>
+                            <p class="text-sm text-gray-500">${item.ukuran} ${item.satuan}</p>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-2xl font-bold ${status.color}">${item.total.toLocaleString()}</div>
+                            <span class="inline-flex px-2 py-1 rounded-full text-xs font-medium ${status.class} ${status.color}">
+                                ${status.text}
+                            </span>
+                        </div>
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-4 mb-3">
+                        <div class="text-center bg-gray-50 rounded-lg p-3">
+                            <div class="text-sm text-gray-600">Masuk</div>
+                            <div class="text-lg font-semibold text-green-600">+${item.masuk.toLocaleString()}</div>
+                        </div>
+                        <div class="text-center bg-gray-50 rounded-lg p-3">
+                            <div class="text-sm text-gray-600">Keluar</div>
+                            <div class="text-lg font-semibold text-red-600">-${item.keluar.toLocaleString()}</div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-center justify-between text-sm mb-3">
+                        <div class="flex items-center space-x-4">
+                            <span class="text-gray-600">Awal: <span class="font-medium">${item.awal.toLocaleString()}</span></span>
+                            <span class="text-gray-600">Beli: <span class="font-medium">${item.beli.toLocaleString()}</span></span>
+                        </div>
+                        <span class="inline-flex px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                            📦 ${item.gudang}
+                        </span>
+                    </div>
+                    
+                    <div class="flex justify-end">
+                        <button onclick="showDetail(${item.id})" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center space-x-2">
+                            <span>👁️</span>
+                            <span>Lihat Detail</span>
+                        </button>
+                    </div>
+                `;
+                
+                mobileCards.appendChild(card);
+            });
+            
+            updatePagination(totalItems, startIndex + 1, endIndex, totalPages);
+        }
+
+        function updatePagination(total, start, end, totalPages) {
+            // Desktop pagination
+            document.getElementById('totalItems2').textContent = total;
+            document.getElementById('showingStart').textContent = start;
+            document.getElementById('showingEnd').textContent = end;
+            
+            const prevBtn = document.getElementById('prevPage');
+            const nextBtn = document.getElementById('nextPage');
+            const pageNumbers = document.getElementById('pageNumbers');
+            
+            prevBtn.disabled = currentPage === 1;
+            nextBtn.disabled = currentPage === totalPages || totalPages === 0;
+            
+            // Mobile pagination
+            document.getElementById('mobileTotalItems').textContent = total;
+            document.getElementById('mobileShowingStart').textContent = start;
+            document.getElementById('mobileShowingEnd').textContent = end;
+            
+            const mobilePrevBtn = document.getElementById('mobilePrevPage');
+            const mobileNextBtn = document.getElementById('mobileNextPage');
+            const mobilePageNumbers = document.getElementById('mobilePageNumbers');
+            
+            mobilePrevBtn.disabled = currentPage === 1;
+            mobileNextBtn.disabled = currentPage === totalPages || totalPages === 0;
+            
+            // Generate page numbers for both desktop and mobile
+            [pageNumbers, mobilePageNumbers].forEach(container => {
+                container.innerHTML = '';
+                if (totalPages > 1) {
+                    for (let i = Math.max(1, currentPage - 2); i <= Math.min(totalPages, currentPage + 2); i++) {
+                        const pageBtn = document.createElement('button');
+                        pageBtn.textContent = i;
+                        pageBtn.className = `px-3 py-2 text-sm font-medium rounded-md ${
+                            i === currentPage 
+                                ? 'bg-blue-600 text-white' 
+                                : 'text-gray-500 bg-white border border-gray-300 hover:bg-gray-50'
+                        }`;
+                        pageBtn.onclick = () => {
+                            currentPage = i;
+                            renderTable();
+                        };
+                        container.appendChild(pageBtn);
+                    }
+                }
+            });
+        }
+
+        function exportToExcel() {
+            try {
+                const headers = ['Brand', 'Produk', 'Ukuran', 'Satuan', 'Awal', 'Beli', 'Proses', 'Masuk', 'Keluar', 'Total', 'Gudang', 'Status'];
+                
+                let csvContent = headers.join(',') + '\n';
+                
+                filteredData.forEach(item => {
+                    const status = getStockStatus(item.total).text;
+                    const row = [
+                        `"${item.brand}"`,
+                        `"${item.produk}"`,
+                        `"${item.ukuran}"`,
+                        `"${item.satuan}"`,
+                        item.awal,
+                        item.beli,
+                        item.proses,
+                        item.masuk,
+                        item.keluar,
+                        item.total,
+                        `"${item.gudang}"`,
+                        `"${status}"`
+                    ];
+                    csvContent += row.join(',') + '\n';
+                });
+                
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement('a');
+                const url = URL.createObjectURL(blob);
+                const filename = `monitoring_packaging_${new Date().toISOString().split('T')[0]}.csv`;
+                link.setAttribute('href', url);
+                link.setAttribute('download', filename);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+            } catch (error) {
+                console.error('Error exporting Excel:', error);
+            }
+        }
+
+        function printReport() {
+            window.print();
+        }
+
+        function applyFilters() {
+            const brandFilter = document.getElementById('brandFilter').value;
+            const searchInput = document.getElementById('searchInput').value.toLowerCase().trim();
+
+            filteredData = allData.filter(item => {
+                const matchesBrand = !brandFilter || item.brand === brandFilter;
+                
+                // Smart search functionality
+                let matchesSearch = true;
+                if (searchInput) {
+                    // Check for special search patterns
+                    if (searchInput.includes('stok:')) {
+                        const stockQuery = searchInput.match(/stok:([<>]=?)(\d+)/);
+                        if (stockQuery) {
+                            const operator = stockQuery[1];
+                            const value = parseInt(stockQuery[2]);
+                            if (operator === '>') matchesSearch = item.total > value;
+                            else if (operator === '<') matchesSearch = item.total < value;
+                            else if (operator === '>=') matchesSearch = item.total >= value;
+                            else if (operator === '<=') matchesSearch = item.total <= value;
+                            else matchesSearch = item.total === value;
+                        }
+                    } else if (searchInput.includes('gudang:')) {
+                        const gudangQuery = searchInput.replace('gudang:', '').trim();
+                        matchesSearch = item.gudang.toLowerCase().includes(gudangQuery);
+                    } else if (searchInput.includes('brand:')) {
+                        const brandQuery = searchInput.replace('brand:', '').trim();
+                        matchesSearch = item.brand.toLowerCase().includes(brandQuery);
+                    } else {
+                        // Regular search across all fields
+                        matchesSearch = 
+                            item.produk.toLowerCase().includes(searchInput) ||
+                            item.brand.toLowerCase().includes(searchInput) ||
+                            item.ukuran.toLowerCase().includes(searchInput) ||
+                            item.gudang.toLowerCase().includes(searchInput) ||
+                            item.satuan.toLowerCase().includes(searchInput);
+                    }
+                }
+
+                return matchesBrand && matchesSearch;
+            });
+
+            currentPage = 1; // Reset to first page when filtering
+            applySorting();
+            renderTable();
+        }
+
+        async function updateLastUpdate() {
+            try {
+                // Use Google Drive API to get actual file modification time
+                const driveUrl = `https://www.googleapis.com/drive/v3/files/${SHEET_ID}?fields=modifiedTime,name&key=${API_KEY}`;
+                const response = await fetch(driveUrl);
+                
+                if (response.ok) {
+                    const fileData = await response.json();
+                    
+                    if (fileData.modifiedTime) {
+                        const modifiedDate = new Date(fileData.modifiedTime);
+                        const timeString = modifiedDate.toLocaleString('id-ID', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit',
+                            timeZone: 'Asia/Jakarta'
+                        });
+                        
+                        const lastUpdateElements = document.querySelectorAll('#lastUpdate');
+                        lastUpdateElements.forEach(element => {
+                            element.textContent = `Terakhir diubah: ${timeString} WIB`;
+                        });
+                        
+                        console.log('File last modified:', fileData.modifiedTime);
+                        console.log('File name:', fileData.name);
+                    }
+                } else {
+                    throw new Error(`Drive API error: ${response.status}`);
+                }
+            } catch (error) {
+                console.warn('Could not get file modification time from Drive API:', error);
+                
+                // Fallback: show current refresh time
+                const now = new Date();
+                const timeString = now.toLocaleString('id-ID', {
+                    year: 'numeric',
+                    month: 'long', 
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    timeZone: 'Asia/Jakarta'
+                });
+                
+                const lastUpdateElements = document.querySelectorAll('#lastUpdate');
+                lastUpdateElements.forEach(element => {
+                    element.textContent = `Data dimuat: ${timeString} WIB`;
+                });
+            }
+        }
+
+        // Filter toggle functionality
+        document.getElementById('filterToggle').addEventListener('click', () => {
+            const filterContent = document.getElementById('filterContent');
+            const filterIcon = document.getElementById('filterIcon');
+            
+            if (filterContent.classList.contains('hidden')) {
+                filterContent.classList.remove('hidden');
+                filterIcon.style.transform = 'rotate(180deg)';
+                filterIcon.textContent = '▲';
+            } else {
+                filterContent.classList.add('hidden');
+                filterIcon.style.transform = 'rotate(0deg)';
+                filterIcon.textContent = '▼';
+            }
+        });
+
+        // Event listeners
+        document.getElementById('refreshBtn').addEventListener('click', () => {
+            const icon = document.getElementById('refreshIcon');
+            icon.style.transform = 'rotate(360deg)';
+            icon.style.transition = 'transform 0.5s ease';
+            setTimeout(() => {
+                icon.style.transform = 'rotate(0deg)';
+            }, 500);
+            loadData();
+        });
+
+        document.getElementById('exportBtn').addEventListener('click', exportToExcel);
+        document.getElementById('exportPdfBtn').addEventListener('click', exportToPDF);
+        document.getElementById('printBtn').addEventListener('click', printReport);
+
+        // Show detail modal
+        function showDetail(itemId) {
+            const item = allData.find(data => data.id === itemId);
+            if (!item) return;
+            
+            const status = getStockStatus(item.total);
+            const modalContent = document.getElementById('modalContent');
+            
+            modalContent.innerHTML = `
+                <div class="space-y-6">
+                    <!-- Header Info -->
+                    <div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-200">
+                        <div class="flex items-start justify-between">
+                            <div>
+                                <h3 class="text-2xl font-bold text-gray-900 mb-2">${item.brand}</h3>
+                                <p class="text-xl text-gray-700 font-medium">${item.produk}</p>
+                                <p class="text-gray-600 mt-1">${item.ukuran} ${item.satuan}</p>
+                            </div>
+                            <div class="text-right">
+                                <div class="text-3xl font-bold ${status.color} mb-2">${item.total.toLocaleString()}</div>
+                                <span class="inline-flex px-3 py-1 rounded-full text-sm font-medium ${status.class} ${status.color}">
+                                    ${status.text}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Stock Flow -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="bg-white border border-gray-200 rounded-xl p-6">
+                            <h4 class="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                                <span class="mr-2">📊</span>
+                                Alur Stok
+                            </h4>
+                            <div class="space-y-4">
+                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                    <span class="text-gray-600">Stok Awal</span>
+                                    <span class="font-semibold text-gray-800">${item.awal.toLocaleString()}</span>
+                                </div>
+                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                    <span class="text-gray-600">Pembelian</span>
+                                    <span class="font-semibold text-blue-600">+${item.beli.toLocaleString()}</span>
+                                </div>
+                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                    <span class="text-gray-600">Dalam Proses</span>
+                                    <span class="font-semibold text-orange-600">${item.proses.toLocaleString()}</span>
+                                </div>
+                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                    <span class="text-gray-600">Stok Masuk</span>
+                                    <span class="font-semibold text-green-600">+${item.masuk.toLocaleString()}</span>
+                                </div>
+                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                    <span class="text-gray-600">Stok Keluar</span>
+                                    <span class="font-semibold text-red-600">-${item.keluar.toLocaleString()}</span>
+                                </div>
+                                <div class="flex justify-between items-center py-3 bg-gray-50 rounded-lg px-3 font-bold text-lg">
+                                    <span class="text-gray-800">Total Stok</span>
+                                    <span class="${status.color}">${item.total.toLocaleString()}</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-white border border-gray-200 rounded-xl p-6">
+                            <h4 class="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                                <span class="mr-2"></span>
+                                
+                            </h4>
+                            <div class="space-y-4">
+                                <div class="bg-gray-50 rounded-lg p-4">
+                                    <div class="text-sm text-gray-600 mb-1">Stok Gudang</div>
+                                    <div class="text-lg font-semibold text-gray-800">${item.gudang}</div>
+                                </div>
+                                
+                                <div class="bg-gray-50 rounded-lg p-4">
+                                    <div class="text-sm text-gray-600 mb-1">Status Stok</div>
+                                    <div class="flex items-center space-x-2">
+                                        <span class="inline-flex px-3 py-1 rounded-full text-sm font-medium ${status.class} ${status.color}">
+                                            ${status.text}
+                                        </span>
+                                        ${item.total < 100 ? '<span class="text-red-600 text-sm">⚠️ Perlu Restok</span>' : ''}
+                                    </div>
+                                </div>
+                                
+                                <div class="bg-gray-50 rounded-lg p-4">
+                                    <div class="text-sm text-gray-600 mb-1">Satuan</div>
+                                    <div class="text-lg font-semibold text-gray-800">${item.satuan}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Action Buttons -->
+                    <div class="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+                        <button onclick="exportSingleItem(${item.id})" class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-medium transition-all duration-200 flex items-center space-x-2">
+                            <span>📊</span>
+                            <span>Export Item</span>
+                        </button>
+                        <button id="closeModal" class="bg-gray-600 hover:bg-gray-700 text-white px-6 py-3 rounded-lg font-medium transition-all duration-200">
+                            Tutup
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('detailModal').classList.remove('hidden');
+        }
+        
+        // Export single item
+        function exportSingleItem(itemId) {
+            try {
+                const item = allData.find(data => data.id === itemId);
+                if (!item) {
+                    return;
+                }
+                
+                const headers = ['Brand', 'Produk', 'Ukuran', 'Satuan', 'Awal', 'Beli', 'Proses', 'Masuk', 'Keluar', 'Total', 'Gudang', 'Status'];
+                const status = getStockStatus(item.total).text;
+                
+                let csvContent = headers.join(',') + '\n';
+                const row = [
+                    `"${item.brand}"`,
+                    `"${item.produk}"`,
+                    `"${item.ukuran}"`,
+                    `"${item.satuan}"`,
+                    item.awal,
+                    item.beli,
+                    item.proses,
+                    item.masuk,
+                    item.keluar,
+                    item.total,
+                    `"${item.gudang}"`,
+                    `"${status}"`
+                ];
+                csvContent += row.join(',') + '\n';
+                
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement('a');
+                const url = URL.createObjectURL(blob);
+                const filename = `detail_${item.brand}_${item.produk}_${new Date().toISOString().split('T')[0]}.csv`;
+                link.setAttribute('href', url);
+                link.setAttribute('download', filename);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+            } catch (error) {
+                console.error('Error exporting single item:', error);
+            }
+        }
+
+        document.getElementById('brandFilter').addEventListener('change', applyFilters);
+        document.getElementById('searchInput').addEventListener('input', applyFilters);
+
+        document.getElementById('sortBy').addEventListener('change', () => {
+            applySorting();
+            renderTable();
+        });
+
+        document.getElementById('sortOrder').addEventListener('change', () => {
+            applySorting();
+            renderTable();
+        });
+
+        document.getElementById('itemsPerPage').addEventListener('change', (e) => {
+            itemsPerPage = e.target.value === 'all' ? 'all' : parseInt(e.target.value);
+            currentPage = 1;
+            renderTable();
+        });
+
+        document.getElementById('prevPage').addEventListener('click', () => {
+            if (currentPage > 1) {
+                currentPage--;
+                renderTable();
+            }
+        });
+
+        document.getElementById('nextPage').addEventListener('click', () => {
+            const totalPages = itemsPerPage === 'all' ? 1 : Math.ceil(filteredData.length / itemsPerPage);
+            if (currentPage < totalPages) {
+                currentPage++;
+                renderTable();
+            }
+        });
+
+
+
+        // Mobile pagination event listeners
+        document.getElementById('mobilePrevPage').addEventListener('click', () => {
+            if (currentPage > 1) {
+                currentPage--;
+                renderTable();
+            }
+        });
+
+        document.getElementById('mobileNextPage').addEventListener('click', () => {
+            const totalPages = itemsPerPage === 'all' ? 1 : Math.ceil(filteredData.length / itemsPerPage);
+            if (currentPage < totalPages) {
+                currentPage++;
+                renderTable();
+            }
+        });
+
+        // FAB (Floating Action Button) functionality
+        let fabMenuOpen = false;
+        
+        document.getElementById('fabButton').addEventListener('click', () => {
+            const fabMenu = document.getElementById('fabMenu');
+            const fabButton = document.getElementById('fabButton');
+            
+            fabMenuOpen = !fabMenuOpen;
+            
+            if (fabMenuOpen) {
+                fabMenu.classList.add('active');
+                fabButton.style.transform = 'rotate(45deg)';
+                fabButton.innerHTML = '✕';
+            } else {
+                fabMenu.classList.remove('active');
+                fabButton.style.transform = 'rotate(0deg)';
+                fabButton.innerHTML = '⚡';
+            }
+        });
+
+        // FAB menu items
+        document.getElementById('fabRefresh').addEventListener('click', () => {
+            const icon = document.getElementById('refreshIcon');
+            icon.style.transform = 'rotate(360deg)';
+            icon.style.transition = 'transform 0.5s ease';
+            setTimeout(() => {
+                icon.style.transform = 'rotate(0deg)';
+            }, 500);
+            loadData();
+            
+            // Close FAB menu
+            document.getElementById('fabMenu').classList.remove('active');
+            document.getElementById('fabButton').style.transform = 'rotate(0deg)';
+            document.getElementById('fabButton').innerHTML = '⚡';
+            fabMenuOpen = false;
+        });
+
+        document.getElementById('fabExport').addEventListener('click', () => {
+            exportToExcel();
+            
+            // Close FAB menu
+            document.getElementById('fabMenu').classList.remove('active');
+            document.getElementById('fabButton').style.transform = 'rotate(0deg)';
+            document.getElementById('fabButton').innerHTML = '⚡';
+            fabMenuOpen = false;
+        });
+
+        document.getElementById('fabExportPdf').addEventListener('click', () => {
+            exportToPDF();
+            
+            // Close FAB menu
+            document.getElementById('fabMenu').classList.remove('active');
+            document.getElementById('fabButton').style.transform = 'rotate(0deg)';
+            document.getElementById('fabButton').innerHTML = '⚡';
+            fabMenuOpen = false;
+        });
+
+        document.getElementById('fabPrint').addEventListener('click', () => {
+            printReport();
+            
+            // Close FAB menu
+            document.getElementById('fabMenu').classList.remove('active');
+            document.getElementById('fabButton').style.transform = 'rotate(0deg)';
+            document.getElementById('fabButton').innerHTML = '⚡';
+            fabMenuOpen = false;
+        });
+
+        // Modal event listeners
+        document.addEventListener('click', (e) => {
+            if (e.target.id === 'closeModal' || e.target.closest('#closeModal')) {
+                document.getElementById('detailModal').classList.add('hidden');
+            }
+            if (e.target.id === 'detailModal') {
+                document.getElementById('detailModal').classList.add('hidden');
+            }
+        });
+
+        // Close modal with Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                document.getElementById('detailModal').classList.add('hidden');
+            }
+        });
+
+        // Close FAB menu when clicking outside
+        document.addEventListener('click', (e) => {
+            const fabButton = document.getElementById('fabButton');
+            const fabMenu = document.getElementById('fabMenu');
+            
+            if (fabMenuOpen && !fabButton.contains(e.target) && !fabMenu.contains(e.target)) {
+                fabMenu.classList.remove('active');
+                fabButton.style.transform = 'rotate(0deg)';
+                fabButton.innerHTML = '⚡';
+                fabMenuOpen = false;
+            }
+        });
+
+        // Initialize
+        loadData();
+    </script>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9842f8ef710540a3',t:'MTc1ODcyNDE1MC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
